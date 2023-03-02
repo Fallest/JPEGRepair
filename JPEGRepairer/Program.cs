@@ -20,6 +20,9 @@ namespace JPEGRepair
       DirectoryInfo outDirectory = Directory.CreateDirectory($"{rootDir}\\{OutFolderName}");
 
       RecoverDirectory(rootDir, outDirectory);
+
+      Console.WriteLine("\n\nPress any key to exit the program");
+      Console.ReadKey();
     }
 
     /*
@@ -31,30 +34,38 @@ namespace JPEGRepair
       if (directory.Contains(OutFolderName)) return;
       Console.WriteLine($"{new String('-', directory.Split('\\').Length * 2)} \"{directory}\"");
 
-      int jpgCounter = 0;
-      int aviCounter = 0;
+      int jpgCounter = 0, aviCounter = 0, mp4Counter = 0;
+      string lastFileName = "";
       DirectoryInfo currentFolderOutDirectory = Directory.CreateDirectory(outDirectory.FullName + directory);
 
       // Loop over JPG files
       foreach (string file in Directory.GetFiles(directory, "*.jpg"))
       {
+        Console.Write($"\r{jpgCounter} JPG files processed inside {directory} (current file: {file})   ");
         SaveFile($"{currentFolderOutDirectory.FullName}\\{file.Split('\\').Last()}", SkipBytes(file));
         jpgCounter++;
+        lastFileName = $"(current file: {file})";
       }
-
+      Console.Write($"\r{jpgCounter} JPG files processed inside {directory} ---- DONE{new String(' ', lastFileName.Length)}\n");
       // Loop over AVI files
       foreach (string file in Directory.GetFiles(directory, "*.avi"))
       {
+        Console.Write($"\r{aviCounter} AVI files processed inside {directory} (current file: {file})   ");
         SaveFile($"{currentFolderOutDirectory.FullName}\\{file.Split('\\').Last()}", SkipBytes(file));
         aviCounter++;
+        lastFileName = $"(current file: {file})";
       }
+      Console.Write($"\r{aviCounter} AVI files processed inside {directory} ---- DONE{new String(' ', lastFileName.Length)}\n");
+      // Loop over MP4 files
+      foreach (string file in Directory.GetFiles(directory, "*.mp4"))
+      {
+        Console.Write($"\r{mp4Counter} MP4 files processed inside {directory} (current file: {file})   ");
+        SaveFile($"{currentFolderOutDirectory.FullName}\\{file.Split('\\').Last()}", SkipBytes(file));
+        mp4Counter++;
+        lastFileName = $"(current file: {file})";
+      }
+      Console.Write($"\r{mp4Counter} MP4files processed inside {directory} ---- DONE{new String(' ', lastFileName.Length)}\n");
 
-      // User feedback
-      Console.WriteLine("\n");
-      Console.WriteLine($"{jpgCounter} JPG files processed inside \"{directory}\"");
-      Console.WriteLine($"{aviCounter} AVI files processed inside \"{directory}\"");
-      Console.WriteLine("\n");
-      
       // Look for subdirectories
       foreach (string subDir in Directory.GetDirectories(directory))
       {
@@ -62,28 +73,70 @@ namespace JPEGRepair
       }
     }
 
+    private static bool CheckFileIntegrity(string file, FileStream reader)
+    {
+      switch(file.Split('.').Last())
+      {
+        case "jpg":
+        case "jpeg":
+          {
+            return CheckJPEGFileIntegrity(reader);
+          }
+        case "avi":
+          {
+            return CheckAVIFileIntegrity(reader);
+          }
+        case "mp4":
+          {
+            return CheckMP4FileIntegrity(reader);
+          }
+        default:
+          {
+            return false;
+          }
+      }
+    }
+
     /*
-    Returns a byte array after skipping the indicated bytes
+    Returns true if the first two bytes are healthy (start of JPEG file). 
+    */
+    private static bool CheckJPEGFileIntegrity(FileStream reader) {
+      reader.Seek(0, SeekOrigin.Begin);
+      int firstByte = reader.ReadByte(), secondByte = reader.ReadByte();
+      return firstByte == 0xFF && secondByte == 0xD8;
+    }
+
+    /*
+    Returns true if the first two bytes are healthy (start of AVI file). 
+    */
+    private static bool CheckAVIFileIntegrity(FileStream reader) {
+      reader.Seek(0, SeekOrigin.Begin);
+      int firstByte = reader.ReadByte(), secondByte = reader.ReadByte();
+      return firstByte == 0x52 && secondByte == 0x49;
+    }
+
+    /*
+    Returns true if the first atom contained inside the MP4 is "ftyp". 
+    */
+    private static bool CheckMP4FileIntegrity(FileStream reader) {
+      reader.Seek(4, SeekOrigin.Begin);
+      byte[] ftypAtom = new byte[4];
+      reader.Read(ftypAtom, 0, ftypAtom.Length);
+      return System.Text.Encoding.Default.GetString(ftypAtom) == "ftyp" ;
+    }
+
+    /*
+    Returns returns the contents of the file after checking its integrity and removing the first 2 bytes
+    if it's not healthy.
     */
     private static byte[]? SkipBytes(string file)
     {
       try
       {
-        // Setup reader stream at start of file, and skip the given bytes.
         bool isHealthy = false;
         FileStream reader = new FileStream(file, FileMode.Open);
-        reader.Seek(0, SeekOrigin.Begin);
 
-        /*
-        If the first two bytes are 0xFF 0xD8, leave this file be.
-        */
-        int firstByte = reader.ReadByte();
-        int secondByte = reader.ReadByte();
-        if (
-          (file.EndsWith("jpg") && firstByte == 0xFF && secondByte == 0xD8) || 
-          (file.EndsWith("avi") && firstByte == 0x52 && secondByte == 0x49)
-        ) {
-          Console.WriteLine($"\"{file}\" is healthy.");
+        if (CheckFileIntegrity(file, reader)) {
           isHealthy = true;
         }
 
@@ -100,6 +153,9 @@ namespace JPEGRepair
       return null;
     }
 
+    /*
+    Saves the contents of the buffer inside a new file. 
+    */
     private static void SaveFile(string savePath, byte[]? buffer)
     {
       if (buffer == null) return;
